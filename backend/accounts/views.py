@@ -80,15 +80,24 @@ class ForgotPasswordView(APIView):
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            # Do not leak which emails exist; always return success message.
             return Response(
-                {"detail": "If this email is registered, a reset request has been sent to admin."},
-                status=status.HTTP_200_OK,
+                {"detail": "No account found with this email address."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Check if there's already a pending request
+        existing = PasswordResetRequest.objects.filter(
+            user=user, status=PasswordResetRequest.Status.PENDING
+        ).first()
+        if existing:
+            return Response(
+                {"detail": "A password reset request is already pending for this account."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         PasswordResetRequest.objects.create(user=user, status=PasswordResetRequest.Status.PENDING)
         return Response(
-            {"detail": "If this email is registered, a reset request has been sent to admin."},
+            {"detail": "Password reset request submitted. Your password will be reset to 00000000 within 24 hours."},
             status=status.HTTP_200_OK,
         )
 
@@ -141,7 +150,7 @@ class PasswordResetProcessView(APIView):
             return Response({"detail": "Reset request not found."}, status=status.HTTP_404_NOT_FOUND)
 
         user = pr.user
-        temp_password = "BY-" + secrets.token_urlsafe(6)
+        temp_password = "00000000"
         user.set_password(temp_password)
         user.force_password_change = True
         user.save(update_fields=["password", "force_password_change"])
@@ -152,7 +161,7 @@ class PasswordResetProcessView(APIView):
 
         return Response(
             {
-                "detail": "Password reset successfully.",
+                "detail": "Password reset to 00000000 successfully.",
                 "temporary_password": temp_password,
                 "force_password_change": True,
             }
@@ -195,15 +204,15 @@ class AdminResetUserPasswordView(APIView):
         except User.DoesNotExist:
             return Response({"detail": "User not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        # Generate a temporary password and force user to change it on next login.
-        temp_password = "BY-" + secrets.token_urlsafe(6)
+        # Reset password to default 00000000 and force user to change it on next login.
+        temp_password = "00000000"
         user.set_password(temp_password)
         user.force_password_change = True
         user.save(update_fields=["password", "force_password_change"])
 
         return Response(
             {
-                "detail": "Password reset successfully.",
+                "detail": "Password reset to 00000000 successfully.",
                 "temporary_password": temp_password,
                 "force_password_change": True,
             }

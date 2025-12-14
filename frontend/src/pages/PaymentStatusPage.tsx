@@ -53,7 +53,7 @@ export const PaymentStatusPage: React.FC = () => {
 
     fetchStatus()
 
-    const pollId = window.setInterval(fetchStatus, 2500)
+    const pollId = window.setInterval(fetchStatus, 1000)
     const tickId = window.setInterval(() => {
       setSecondsLeft((s) => s - 1)
     }, 1000)

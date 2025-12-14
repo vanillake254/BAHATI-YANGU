@@ -47,7 +47,7 @@ export const ForgotPasswordPage: React.FC = () => {
         <div className="mb-6 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-slate-50">Reset your password</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Enter your registered email. A reset request will be sent to the admin to set a temporary password.
+            Enter your registered email. Your password will be reset to default <span className="font-mono font-semibold text-accent">00000000</span> within 24 hours and you must change it when you next login.
           </p>
         </div>
 

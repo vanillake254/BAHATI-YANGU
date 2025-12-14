@@ -44,6 +44,19 @@ type ProfitStatus = {
     failed: number
     total_amount: number
   }
+  wallet_stats?: {
+    total_balance: number
+    total_bonus_balance: number
+    total_wallet_value: number
+  }
+  daily?: {
+    date: string
+    margin: Record<string, MarginStats>
+    targets_met: Record<string, boolean>
+    met_count: number
+    total_games: number
+    all_met: boolean
+  }
 }
 
 type AdminUser = {
@@ -118,8 +131,27 @@ export const AdminProfitPage: React.FC = () => {
   const [resetRequestResult, setResetRequestResult] = useState<
     { requestId: number; tempPassword: string } | null
   >(null)
+  const [walletResetMsg, setWalletResetMsg] = useState<string | null>(null)
+  const [resettingWallets, setResettingWallets] = useState(false)
 
   const pageSize = 10
+
+  const handleResetWallets = async () => {
+    if (!confirm('Are you sure you want to reset ALL wallet balances to 0? This cannot be undone.')) return
+    setResettingWallets(true)
+    setWalletResetMsg(null)
+    try {
+      const res = await request<{ detail: string }>({ url: '/api/wallet/admin/reset/', method: 'POST' })
+      setWalletResetMsg(res.detail)
+      // Reload data
+      const profitRes = await request<ProfitStatus>({ url: '/api/profit/status/' })
+      setData(profitRes)
+    } catch (err: any) {
+      setWalletResetMsg(err?.response?.data?.detail || 'Failed to reset wallets')
+    } finally {
+      setResettingWallets(false)
+    }
+  }
 
   const isAdmin = !!user?.is_staff || !!user?.is_superuser
 
@@ -281,10 +313,61 @@ export const AdminProfitPage: React.FC = () => {
             </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 text-xs">
-            <div className="text-slate-400">Users &amp; withdrawals</div>
+            <div className="text-slate-400">Users, wallet &amp; flows</div>
             <div className="mt-1 text-lg font-semibold text-slate-50">
               {data.user_stats.total_users.toLocaleString()} users
             </div>
+            {data.wallet_stats && (
+              <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+                <div>
+                  Net wallet balance (Deposits - Withdrawals) KES {data.wallet_stats.total_balance.toFixed(2)}
+                </div>
+                <div className="text-slate-400">
+                  Total wallet value KES {data.wallet_stats.total_wallet_value.toFixed(2)}
+                </div>
+                <div>
+                  75% target pool KES {(data.wallet_stats.total_wallet_value * data.target_margin).toFixed(2)}
+                </div>
+                <button
+                  onClick={handleResetWallets}
+                  disabled={resettingWallets}
+                  className="mt-3 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {resettingWallets ? 'Resetting...' : 'Reset All Wallets & Stats'}
+                </button>
+                {walletResetMsg && (
+                  <div className="mt-2 text-emerald-400">{walletResetMsg}</div>
+                )}
+              </div>
+            )}
+
+            {data.daily && (
+              <div
+                className={
+                  data.daily.all_met
+                    ? 'mt-3 rounded-2xl border border-emerald-500/30 bg-emerald-950/30 px-3 py-2 text-[11px] text-emerald-200'
+                    : 'mt-3 rounded-2xl border border-red-500/30 bg-red-950/30 px-3 py-2 text-[11px] text-red-200'
+                }
+              >
+                <div className="font-semibold">
+                  Daily target ({data.daily.date}): {data.daily.met_count}/{data.daily.total_games} games met
+                </div>
+                <div className="mt-1 grid grid-cols-1 gap-1">
+                  {Object.keys(data.daily.margin).map((game) => {
+                    const m = data.daily?.margin?.[game]
+                    const ok = !!data.daily?.targets_met?.[game]
+                    return (
+                      <div key={game} className="flex items-center justify-between">
+                        <span className="text-slate-200">{m?.label || game}</span>
+                        <span className={ok ? 'text-emerald-200' : 'text-red-200'}>
+                          {formatPct(m?.margin ?? null)}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
             <div className="mt-2 text-[11px] text-slate-500">
               D: {data.deposit_stats.success} ✓ · {data.deposit_stats.pending} ⏳ · {data.deposit_stats.failed} ✕
             </div>

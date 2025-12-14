@@ -4,6 +4,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db.models import Sum
 from django.utils import timezone
+from datetime import datetime
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -26,6 +27,30 @@ def _compute_margin_stats(window_minutes: int | None = None, window_hours: int |
     data = {}
     for game_type, label in GameRound.GameType.choices:
         qs = GameRound.objects.filter(game_type=game_type, **filters)
+        agg_stakes = qs.aggregate(total=Sum("stake"))
+        agg_payouts = qs.aggregate(total=Sum("win_amount"))
+        total_stakes = float(agg_stakes.get("total") or 0.0)
+        total_payouts = float(agg_payouts.get("total") or 0.0)
+
+        if total_stakes > 0:
+            margin = (total_stakes - total_payouts) / total_stakes
+        else:
+            margin = None
+
+        data[game_type] = {
+            "label": label,
+            "total_stakes": total_stakes,
+            "total_payouts": total_payouts,
+            "margin": margin,
+        }
+
+    return data
+
+
+def _compute_margin_stats_since(start_dt):
+    data = {}
+    for game_type, label in GameRound.GameType.choices:
+        qs = GameRound.objects.filter(game_type=game_type, created_at__gte=start_dt)
         agg_stakes = qs.aggregate(total=Sum("stake"))
         agg_payouts = qs.aggregate(total=Sum("win_amount"))
         total_stakes = float(agg_stakes.get("total") or 0.0)
@@ -80,7 +105,18 @@ class ProfitStatusView(APIView):
             "total_users": User.objects.count(),
         }
 
+        # Filter by STATS_RESET_DATE to allow resetting stats without deleting history
+        reset_date_str = getattr(settings, "STATS_RESET_DATE", None)
+        reset_date = None
+        if reset_date_str:
+            try:
+                reset_date = datetime.fromisoformat(reset_date_str)
+            except ValueError:
+                pass
+
         withdrawals = Transaction.objects.filter(type=Transaction.Type.WITHDRAWAL)
+        if reset_date:
+            withdrawals = withdrawals.filter(created_at__gte=reset_date)
         withdrawal_stats = {
             "pending": withdrawals.filter(status=Transaction.Status.PENDING).count(),
             "success": withdrawals.filter(status=Transaction.Status.SUCCESS).count(),
@@ -94,6 +130,8 @@ class ProfitStatusView(APIView):
         }
 
         deposits = Transaction.objects.filter(type=Transaction.Type.DEPOSIT)
+        if reset_date:
+            deposits = deposits.filter(created_at__gte=reset_date)
         deposit_stats = {
             "pending": deposits.filter(status=Transaction.Status.PENDING).count(),
             "success": deposits.filter(status=Transaction.Status.SUCCESS).count(),
@@ -105,6 +143,23 @@ class ProfitStatusView(APIView):
                 or 0.0
             ),
         }
+
+        net_wallet_balance = float(deposit_stats["total_amount"] - withdrawal_stats["total_amount"])
+        wallet_stats = {
+            "total_balance": net_wallet_balance,
+            "total_bonus_balance": 0.0,
+            "total_wallet_value": net_wallet_balance,
+        }
+
+        now = timezone.now()
+        start_of_day = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+        daily_stats = _compute_margin_stats_since(start_of_day)
+        daily_targets = {
+            game_type: (daily_stats[game_type]["margin"] is not None and daily_stats[game_type]["margin"] >= float(getattr(settings, "HOUSE_TARGET_MARGIN", 0.75)))
+            for game_type, _ in GameRound.GameType.choices
+        }
+        daily_total = len(daily_targets)
+        daily_met = sum(1 for v in daily_targets.values() if v)
 
         return Response(
             {
@@ -119,5 +174,14 @@ class ProfitStatusView(APIView):
                 "user_stats": user_stats,
                 "deposit_stats": deposit_stats,
                 "withdrawal_stats": withdrawal_stats,
+                "wallet_stats": wallet_stats,
+                "daily": {
+                    "date": str(timezone.localdate()),
+                    "margin": daily_stats,
+                    "targets_met": daily_targets,
+                    "met_count": daily_met,
+                    "total_games": daily_total,
+                    "all_met": daily_met == daily_total,
+                },
             }
         )

@@ -32,6 +32,7 @@ export const DashboardPage: React.FC = () => {
   const [actionMessage, setActionMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [withdrawPending, setWithdrawPending] = useState<{ txId: number; amount: string } | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -115,15 +116,82 @@ export const DashboardPage: React.FC = () => {
         method: 'POST',
         data: { amount: withdrawAmount },
       })
+      const amt = withdrawAmount
       setWithdrawAmount('')
-      navigate(`/payment-status?tx=${res.transaction_id}`)
+      setWithdrawPending({ txId: res.transaction_id, amount: amt })
     } catch (err: any) {
       setError(String(err?.response?.data?.detail || 'Withdrawal failed.'))
     }
   }
 
+  // Poll withdrawal status with 1-minute timeout
+  useEffect(() => {
+    if (!withdrawPending) return
+
+    let cancelled = false
+    const startTime = Date.now()
+    const TIMEOUT_MS = 60_000 // 1 minute
+
+    const poll = async () => {
+      if (cancelled) return
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        setWithdrawPending(null)
+        setError('Withdrawal timed out. Check your M-Pesa or try again.')
+        return
+      }
+
+      try {
+        const res = await request<{ status: string; final_state?: string }>({
+          url: `/api/payments/status/${withdrawPending.txId}/`,
+        })
+
+        if (res.status === 'SUCCESS') {
+          setWithdrawPending(null)
+          const msg = `Cash out of KES ${withdrawPending.amount} successful! Funds sent to M-Pesa.`
+          setToast(msg)
+          // Auto-dismiss toast after 3 seconds
+          setTimeout(() => setToast(null), 3000)
+          load() // refresh wallet + transactions
+          return
+        }
+
+        if (res.status === 'FAILED' || res.final_state === 'FAILED' || res.final_state === 'CANCELED') {
+          setWithdrawPending(null)
+          setError('Withdrawal failed. Funds returned to wallet.')
+          load()
+          return
+        }
+
+        // Still pending, poll again
+        setTimeout(poll, 1000)
+      } catch {
+        // Network error, retry
+        setTimeout(poll, 1500)
+      }
+    }
+
+    poll()
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [withdrawPending])
+
   return (
     <div className="space-y-8">
+      {/* Withdrawal pending overlay */}
+      {withdrawPending && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-[min(360px,calc(100vw-2rem))] rounded-3xl border border-emerald-500/40 bg-slate-950/95 p-6 text-center shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
+            <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-emerald-400 border-t-transparent" />
+            <p className="mt-4 text-sm font-medium text-emerald-100">Processing withdrawal…</p>
+            <p className="mt-1 text-xs text-slate-400">KES {withdrawPending.amount} to M-Pesa</p>
+          </div>
+        </div>
+      )}
+
+      {/* Success toast */}
       {toast && (
         <div className="fixed left-1/2 top-5 z-50 w-[min(520px,calc(100vw-2rem))] -translate-x-1/2">
           <div className="rounded-2xl border border-emerald-500/40 bg-emerald-950/90 px-4 py-3 text-sm text-emerald-50 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur">

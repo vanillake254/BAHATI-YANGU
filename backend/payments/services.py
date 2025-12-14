@@ -15,10 +15,11 @@ class IntaSendConfig:
 
     @classmethod
     def from_settings(cls) -> "IntaSendConfig":
+        env = str(getattr(settings, "INTASEND_ENV", "") or "").strip().lower()
         return cls(
             public_key=settings.INTASEND_PUBLIC_KEY,
             secret_key=settings.INTASEND_SECRET_KEY,
-            test=settings.INTASEND_ENV != "live",
+            test=env not in {"live", "production", "prod"},
         )
 
 
@@ -35,7 +36,8 @@ class IntaSendClient:
         # IntaSend has multiple domains in the wild:
         # - API endpoints documented under api.intasend.com
         # - Hosted checkout pages under payment.intasend.com
-        self.api_base_url = "https://sandbox.intasend.com/api/v1" if self.config.test else "https://api.intasend.com/api/v1"
+        # IntaSend SDK uses payment.intasend.com for ALL authenticated API calls
+        self.api_base_url = "https://sandbox.intasend.com/api/v1" if self.config.test else "https://payment.intasend.com/api/v1"
         self.checkout_base_url = "https://sandbox.intasend.com/api/v1" if self.config.test else "https://payment.intasend.com/api/v1"
 
     def _raise_for_status(self, resp: requests.Response) -> None:
@@ -46,15 +48,25 @@ class IntaSendClient:
             details = resp.text
         except Exception:
             details = ""
+        method = getattr(getattr(resp, "request", None), "method", "")
+        url = getattr(resp, "url", "")
         raise requests.HTTPError(
-            f"IntaSend HTTP {resp.status_code}: {details}",
+            f"IntaSend HTTP {resp.status_code} {method} {url}: {details}",
             response=resp,
         )
 
     def _headers(self) -> Dict[str, str]:
+        # IntaSend SDK requires BOTH Authorization AND INTASEND_PUBLIC_API_KEY headers
         return {
             "Authorization": f"Bearer {self.config.secret_key}",
             "Content-Type": "application/json",
+            "INTASEND_PUBLIC_API_KEY": self.config.public_key,
+        }
+
+    def _noauth_headers(self) -> Dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "INTASEND_PUBLIC_API_KEY": self.config.public_key,
         }
 
     def _checkout_headers(self) -> Dict[str, str]:
@@ -134,24 +146,54 @@ class IntaSendClient:
         self._raise_for_status(resp)
         return resp.json()
 
-    def initiate_payout(self, amount: float, mpesa_number: str, narrative: str, callback_url: str) -> Dict[str, Any]:
-        # IntaSend payouts are done via Transfer (M-Pesa B2C). The older /payouts/
-        # path returns 404 HTML in live environment.
+    def payment_status(self, invoice_id: str) -> Dict[str, Any]:
         payload = {
+            "invoice_id": str(invoice_id),
+            "public_key": self.config.public_key,
+        }
+
+        url = f"{self.api_base_url}/payment/status/"
+        resp = requests.post(url, json=payload, headers=self._noauth_headers(), timeout=30)
+        self._raise_for_status(resp)
+        return resp.json()
+
+    def initiate_payout(
+        self,
+        amount: float,
+        mpesa_number: str,
+        narrative: str,
+        callback_url: str,
+        request_reference_id: str = "",
+    ) -> Dict[str, Any]:
+        # IntaSend Send Money API - matching official SDK payload exactly
+        payload = {
+            "provider": "MPESA-B2C",
             "currency": "KES",
-            # Set to NO to auto-process without an extra approval step.
-            "requires_approval": "NO",
             "callback_url": callback_url,
+            "requires_approval": "NO",  # Skip device approval
+            "wallet_id": None,
             "transactions": [
                 {
-                    "account": self._normalize_msisdn(mpesa_number),
-                    "amount": amount,
+                    "name": "Bahati Yangu Player",
+                    "account": int(self._normalize_msisdn(mpesa_number)),
+                    "amount": int(round(amount)),
                     "narrative": narrative,
+                    "request_reference_id": str(request_reference_id or ""),
                 }
             ],
         }
 
-        url = f"{self.api_base_url}/transfer/mpesa/"
+        url = f"{self.api_base_url}/send-money/initiate/"
+        resp = requests.post(url, json=payload, headers=self._headers(), timeout=30)
+        self._raise_for_status(resp)
+        return resp.json()
+
+    def payout_status(self, tracking_id: str) -> Dict[str, Any]:
+        payload = {
+            "tracking_id": str(tracking_id),
+        }
+
+        url = f"{self.api_base_url}/send-money/status/"
         resp = requests.post(url, json=payload, headers=self._headers(), timeout=30)
         self._raise_for_status(resp)
         return resp.json()

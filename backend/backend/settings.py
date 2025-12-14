@@ -159,8 +159,13 @@ CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", CELERY_BROKER_UR
 INTASEND_PUBLIC_KEY = os.environ.get("INTASEND_PUBLIC_KEY", "")
 INTASEND_SECRET_KEY = os.environ.get("INTASEND_SECRET_KEY", "")
 INTASEND_ENV = os.environ.get("INTASEND_ENV", "sandbox")
+INTASEND_DEVICE_ID = os.environ.get("INTASEND_DEVICE_ID", "")
 
 FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://bahati-yangu.web.app")
+
+# Date after which to count deposits/withdrawals for global stats (ISO format)
+# Set this to reset stats without deleting history
+STATS_RESET_DATE = os.environ.get("STATS_RESET_DATE", "2025-12-14T04:30:00+00:00")
 
 HOUSE_TARGET_MARGIN = float(os.environ.get("HOUSE_TARGET_MARGIN", "0.75"))
 HOUSE_MARGIN_NORMALIZER = float(os.environ.get("HOUSE_MARGIN_NORMALIZER", "0.2"))
