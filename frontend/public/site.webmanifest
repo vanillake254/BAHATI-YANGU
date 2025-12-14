@@ -1,0 +1,16 @@
+{
+  "name": "Bahati Yangu",
+  "short_name": "BahatiYangu",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#0b1220",
+  "icons": [
+    {
+      "src": "/by-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
