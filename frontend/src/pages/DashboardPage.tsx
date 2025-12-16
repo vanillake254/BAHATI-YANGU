@@ -240,7 +240,7 @@ export const DashboardPage: React.FC = () => {
         <div className="rounded-3xl border border-cyan-400/40 bg-gradient-to-br from-cyan-500/20 via-slate-900 to-slate-950 p-5">
           <div className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Pick a Box</div>
           <p className="mt-2 text-sm text-cyan-50">
-            Three mystery boxes hiding X0, X1 and X2. Stake once, pick a box and reveal your multiplier.
+            Three mystery boxes hiding X0, X1, X2 and X3. Stake once, pick a box and reveal your multiplier.
           </p>
           <a
             href="/pick-box"

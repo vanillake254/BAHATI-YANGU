@@ -165,7 +165,7 @@ FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "https://bahati-yangu.we
 
 # Date after which to count deposits/withdrawals for global stats (ISO format)
 # Set this to reset stats without deleting history
-STATS_RESET_DATE = os.environ.get("STATS_RESET_DATE", "2025-12-14T04:30:00+00:00")
+STATS_RESET_DATE = os.environ.get("STATS_RESET_DATE", "2025-12-16T13:00:00+00:00")
 
 HOUSE_TARGET_MARGIN = float(os.environ.get("HOUSE_TARGET_MARGIN", "0.75"))
 HOUSE_MARGIN_NORMALIZER = float(os.environ.get("HOUSE_MARGIN_NORMALIZER", "0.2"))

@@ -1,0 +1,14 @@
+# python
+__pycache__/
+*.py[cod]
+*.pyd
+
+# node
+node_modules/
+
+# firebase
+.firebase/
+
+# build outputs
+frontend/dist/
+backend/staticfiles/

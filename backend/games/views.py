@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from decimal import Decimal
+import logging
 
 from django.db import transaction
 from rest_framework import permissions, status
@@ -24,6 +25,50 @@ from .serializers import (
     SpinResultSerializer,
     WheelSegmentSerializer,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _is_welcome_bonus_mode(wallet: Wallet) -> bool:
+    return (not wallet.has_made_real_deposit) and wallet.balance <= 0 and wallet.bonus_balance > 0
+
+
+def _apply_target_win_rate(
+    *,
+    segments: list[WheelSegment],
+    probs: list[float],
+    target_win_rate: float,
+) -> list[float]:
+    if not segments or not probs or len(segments) != len(probs):
+        return probs
+
+    win_idxs = [i for i, s in enumerate(segments) if float(s.multiplier) > 0]
+    loss_idxs = [i for i, s in enumerate(segments) if float(s.multiplier) <= 0]
+    if not win_idxs or not loss_idxs:
+        return probs
+
+    win_sum = sum(max(0.0, probs[i]) for i in win_idxs)
+    loss_sum = sum(max(0.0, probs[i]) for i in loss_idxs)
+    if win_sum <= 0 or loss_sum <= 0:
+        return probs
+
+    # Scale weights so that (scaled_win_sum / scaled_total) ~= target_win_rate.
+    # Keep relative weights within win and loss buckets.
+    w = float(target_win_rate)
+    l = 1.0 - w
+    scale_win = w / win_sum
+    scale_loss = l / loss_sum
+
+    adjusted: list[float] = []
+    for i, p in enumerate(probs):
+        base = max(0.0, float(p))
+        if i in win_idxs:
+            adjusted.append(base * scale_win)
+        else:
+            adjusted.append(base * scale_loss)
+    return adjusted
+
+
 def ensure_default_wheel() -> None:
     """Seed a sensible default wheel if no segments exist.
 
@@ -88,6 +133,7 @@ class SpinPlayView(APIView):
             return Response({"detail": "Stake must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
         wallet: Wallet = request.user.wallet
+        welcome_mode = _is_welcome_bonus_mode(wallet)
 
         ensure_default_wheel()
         segments = list(WheelSegment.objects.all().order_by("order", "id"))
@@ -99,18 +145,11 @@ class SpinPlayView(APIView):
         margin_spin_short = get_margin_for_game(GameRound.GameType.SPIN.value, window_minutes=10)
         probs = adjusted_spin_probabilities(segments, margin_spin_short)
 
-        # Welcome bonus boost: for users who haven't made a real deposit yet,
-        # slightly bias away from losing segments.
-        if not wallet.has_made_real_deposit:
-            boosted = []
-            for seg, p in zip(segments, probs):
-                if seg.multiplier >= 1:
-                    boosted.append(p * 1.15)
-                elif seg.multiplier > 0:
-                    boosted.append(p * 1.05)
-                else:
-                    boosted.append(p * 0.75)
-            probs = boosted
+        if _is_welcome_bonus_mode(wallet):
+            probs = _apply_target_win_rate(segments=segments, probs=probs, target_win_rate=0.75)
+
+        welcome_mode = _is_welcome_bonus_mode(wallet)
+
         total_prob = sum(max(0.0, p) for p in probs)
         if total_prob <= 0:
             return Response({"detail": "Invalid wheel configuration."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -127,6 +166,11 @@ class SpinPlayView(APIView):
         multiplier = Decimal(str(chosen_segment.multiplier))
         win_amount = (stake * multiplier).quantize(Decimal("0.01")) if multiplier > 0 else Decimal("0")
         is_win = win_amount > 0
+
+        if welcome_mode:
+            logger.info(
+                f"SPIN welcome_mode user={request.user.id} stake={stake} result={chosen_segment.label} mult={multiplier} is_win={is_win}"
+            )
 
         # Special handling for -1.5x: treat it as losing 1.5x the stake total.
         # The normal stake is always deducted; here we add an extra 0.5x stake loss.
@@ -245,6 +289,7 @@ class PickBoxPlayView(APIView):
             )
 
         wallet: Wallet = request.user.wallet
+        welcome_mode = _is_welcome_bonus_mode(wallet)
 
         # Probabilities chosen by admin.
         # EV = 0*0.40 + 1*0.34 + 2*0.16 + 3*0.10 = 0.96
@@ -255,13 +300,13 @@ class PickBoxPlayView(APIView):
             {"label": "X3", "multiplier": Decimal("3"), "prob": 0.10},
         ]
 
-        if not wallet.has_made_real_deposit:
-            # Boost higher multipliers slightly for welcome bonus users.
+        if welcome_mode:
+            # Stronger welcome bias: make X2/X3 appear much more often.
             options = [
-                {"label": "X0", "multiplier": Decimal("0"), "prob": 0.30},
-                {"label": "X1", "multiplier": Decimal("1"), "prob": 0.34},
-                {"label": "X2", "multiplier": Decimal("2"), "prob": 0.22},
-                {"label": "X3", "multiplier": Decimal("3"), "prob": 0.14},
+                {"label": "X0", "multiplier": Decimal("0"), "prob": 0.15},
+                {"label": "X1", "multiplier": Decimal("1"), "prob": 0.20},
+                {"label": "X2", "multiplier": Decimal("2"), "prob": 0.35},
+                {"label": "X3", "multiplier": Decimal("3"), "prob": 0.30},
             ]
 
         rnd = random.random()
@@ -276,6 +321,11 @@ class PickBoxPlayView(APIView):
         multiplier = selected["multiplier"]
         win_amount = (stake * multiplier).quantize(Decimal("0.01")) if multiplier > 0 else Decimal("0")
         is_win = win_amount > 0
+
+        if welcome_mode:
+            logger.info(
+                f"PICKBOX welcome_mode user={request.user.id} stake={stake} choice={choice} result={selected['label']} mult={multiplier} is_win={is_win}"
+            )
 
         with transaction.atomic():
             if not wallet.has_made_real_deposit:
@@ -306,7 +356,10 @@ class PickBoxPlayView(APIView):
             )
 
             if is_win:
-                wallet.adjust_balance(win_amount)
+                if _is_welcome_bonus_mode(wallet):
+                    wallet.adjust_bonus_balance(win_amount)
+                else:
+                    wallet.adjust_balance(win_amount)
                 Transaction.objects.create(
                     user=request.user,
                     type=Transaction.Type.GAME_WIN,
@@ -345,6 +398,8 @@ class PickBoxPlayView(APIView):
         ).data
 
         return Response(resp, status=status.HTTP_200_OK)
+
+
 class PredictPlayView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -372,15 +427,28 @@ class PredictPlayView(APIView):
             )
 
         wallet: Wallet = request.user.wallet
-        if not wallet.can_afford(stake):
-            return Response({"detail": "Insufficient balance."}, status=status.HTTP_400_BAD_REQUEST)
+        welcome_mode = _is_welcome_bonus_mode(wallet)
+        if wallet.has_made_real_deposit:
+            if not wallet.can_afford(stake):
+                return Response({"detail": "Insufficient balance."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # Allow welcome bonus play (bonus + cash)
+            if wallet.bonus_balance + wallet.balance < stake:
+                return Response({"detail": "Insufficient balance."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not wallet.has_made_real_deposit:
-            # Welcome bonus boost: slightly higher chance to match the user's prediction.
-            outcome = prediction if random.random() < 0.60 else ("black" if prediction == "red" else "red")
+        if welcome_mode:
+            outcome = prediction if random.random() < 0.80 else ("black" if prediction == "red" else "red")
+        elif wallet.has_made_real_deposit:
+            # Real funds mode: reduce win rate to ~35%.
+            outcome = prediction if random.random() < 0.35 else ("black" if prediction == "red" else "red")
         else:
             outcome = random.choice(sorted(allowed))
         is_win = prediction == outcome
+
+        if welcome_mode:
+            logger.info(
+                f"PREDICT welcome_mode user={request.user.id} stake={stake} prediction={prediction} outcome={outcome} is_win={is_win}"
+            )
 
         # Ask profit engine for a suitable multiplier based on recent margin.
         margin_predict_short = get_margin_for_game(GameRound.GameType.PREDICT.value, window_minutes=10)
@@ -416,7 +484,10 @@ class PredictPlayView(APIView):
             )
 
             if is_win:
-                wallet.adjust_balance(win_amount)
+                if _is_welcome_bonus_mode(wallet):
+                    wallet.adjust_bonus_balance(win_amount)
+                else:
+                    wallet.adjust_balance(win_amount)
                 Transaction.objects.create(
                     user=request.user,
                     type=Transaction.Type.GAME_WIN,

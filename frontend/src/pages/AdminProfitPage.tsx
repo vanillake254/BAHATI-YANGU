@@ -131,27 +131,8 @@ export const AdminProfitPage: React.FC = () => {
   const [resetRequestResult, setResetRequestResult] = useState<
     { requestId: number; tempPassword: string } | null
   >(null)
-  const [walletResetMsg, setWalletResetMsg] = useState<string | null>(null)
-  const [resettingWallets, setResettingWallets] = useState(false)
 
   const pageSize = 10
-
-  const handleResetWallets = async () => {
-    if (!confirm('Are you sure you want to reset ALL wallet balances to 0? This cannot be undone.')) return
-    setResettingWallets(true)
-    setWalletResetMsg(null)
-    try {
-      const res = await request<{ detail: string }>({ url: '/api/wallet/admin/reset/', method: 'POST' })
-      setWalletResetMsg(res.detail)
-      // Reload data
-      const profitRes = await request<ProfitStatus>({ url: '/api/profit/status/' })
-      setData(profitRes)
-    } catch (err: any) {
-      setWalletResetMsg(err?.response?.data?.detail || 'Failed to reset wallets')
-    } finally {
-      setResettingWallets(false)
-    }
-  }
 
   const isAdmin = !!user?.is_staff || !!user?.is_superuser
 
@@ -305,11 +286,47 @@ export const AdminProfitPage: React.FC = () => {
             <div className="mt-1 text-2xl font-semibold text-slate-50">
               {data.short_window_minutes} min
             </div>
+            <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+              {gameTypes.some((g) => (data.margin_short?.[g]?.total_stakes || 0) > 0) ? (
+                gameTypes.map((g) => {
+                  const m = data.margin_short?.[g]
+                  return (
+                    <div key={g} className="flex items-center justify-between">
+                      <span className="text-slate-300">{m?.label || g}</span>
+                      <span className="text-slate-400">{formatPct(m?.margin ?? null)}</span>
+                    </div>
+                  )
+                })
+              ) : (
+                <div>
+                  No rounds recorded in the last {data.short_window_minutes} minutes yet. Margins will appear once
+                  gameplay starts.
+                </div>
+              )}
+            </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 text-xs">
             <div className="text-slate-400">Long window</div>
             <div className="mt-1 text-2xl font-semibold text-slate-50">
               {data.long_window_hours} hrs
+            </div>
+            <div className="mt-2 space-y-1 text-[11px] text-slate-500">
+              {gameTypes.some((g) => (data.margin_long?.[g]?.total_stakes || 0) > 0) ? (
+                gameTypes.map((g) => {
+                  const m = data.margin_long?.[g]
+                  return (
+                    <div key={g} className="flex items-center justify-between">
+                      <span className="text-slate-300">{m?.label || g}</span>
+                      <span className="text-slate-400">{formatPct(m?.margin ?? null)}</span>
+                    </div>
+                  )
+                })
+              ) : (
+                <div>
+                  No rounds recorded in the last {data.long_window_hours} hours yet. Margins will appear once gameplay
+                  starts.
+                </div>
+              )}
             </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-slate-900/80 p-4 text-xs">
@@ -328,16 +345,6 @@ export const AdminProfitPage: React.FC = () => {
                 <div>
                   75% target pool KES {(data.wallet_stats.total_wallet_value * data.target_margin).toFixed(2)}
                 </div>
-                <button
-                  onClick={handleResetWallets}
-                  disabled={resettingWallets}
-                  className="mt-3 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  {resettingWallets ? 'Resetting...' : 'Reset All Wallets & Stats'}
-                </button>
-                {walletResetMsg && (
-                  <div className="mt-2 text-emerald-400">{walletResetMsg}</div>
-                )}
               </div>
             )}
 
