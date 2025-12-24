@@ -112,16 +112,18 @@ export const LoginPage: React.FC = () => {
           </Link>
         </p>
 
-        <p className="mt-4 text-center text-[11px] text-slate-500">
-          <a
-            href="https://vanillasoftwares.web.app"
-            target="_blank"
-            rel="noreferrer"
-            className="font-semibold text-accent hover:text-accentSoft"
-          >
-            Powered by Vanilla Softwares
-          </a>
-        </p>
+        <div className="mt-8 text-center text-[11px] text-slate-500">
+          <p>
+            By continuing, you agree to the{' '}
+            <a href="#" className="text-accent hover:text-accentSoft">
+              terms and conditions
+            </a>
+            .
+          </p>
+          <p className="mt-1">
+            <span className="font-semibold text-accent">Powered by Bahati Yangu</span>
+          </p>
+        </div>
       </div>
     </div>
   )

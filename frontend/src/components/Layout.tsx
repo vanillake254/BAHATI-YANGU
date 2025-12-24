@@ -151,14 +151,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             </span>
           </div>
           <div>
-            <a
-              href="https://vanillasoftwares.web.app"
-              target="_blank"
-              rel="noreferrer"
-              className="font-semibold text-accent hover:text-accentSoft"
-            >
-              Powered by Vanilla Softwares
-            </a>
+            <span className="font-semibold text-accent">Powered by Bahati Yangu</span>
           </div>
         </div>
         <CookieBanner />

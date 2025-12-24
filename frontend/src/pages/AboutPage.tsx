@@ -23,16 +23,8 @@ export const AboutPage: React.FC = () => {
           Bahati Yangu is a high-risk entertainment product. Only stake what you can afford to lose, and take
           regular breaks. If you feel your play is no longer fun, stop immediately and seek help.
         </p>
-        <p className="mt-3">
-          <a
-            href="https://vanillasoftwares.web.app"
-            target="_blank"
-            rel="noreferrer"
-            className="font-semibold text-accent hover:text-accentSoft"
-          >
-            Powered by Vanilla Softwares
-          </a>
-          .
+        <p className="mt-4 text-xs text-slate-500">
+          Built for fun and transparency. <span className="font-semibold text-accent">Powered by Bahati Yangu</span>.
         </p>
       </div>
     </div>

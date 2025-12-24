@@ -178,8 +178,8 @@ class DepositInitView(APIView):
         if amount <= 0:
             return Response({"detail": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
 
-        if amount < Decimal("50"):
-            return Response({"detail": "Minimum deposit is KES 50."}, status=status.HTTP_400_BAD_REQUEST)
+        if amount < Decimal("100"):
+            return Response({"detail": "Minimum deposit is KES 100."}, status=status.HTTP_400_BAD_REQUEST)
 
         tx = Transaction.objects.create(
             user=request.user,
